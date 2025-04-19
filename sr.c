@@ -149,17 +149,18 @@ void A_input(struct pkt packet)
               printf("----A: ACK %d is not a duplicate\n",packet.acknum);
             new_ACKs++;
 
-            /* no cumulative acknowledgement, instead justing checking for wraparound */
+            /* no cumulative acknowledgement, instead just checking for wraparound */
+            if (isInWindow(windowfirst, packet.acknum)) {
+                acked[packet.acknum] = 1;
+            }
 
-            acked[packet.acknum] = 1;
 
-
-	    /* slide window by the number of packets ACKed */
-            windowfirst = (windowfirst + ackcount) % WINDOWSIZE;
-
-            /* delete the acked packets from window buffer */
-            for (i=0; i<ackcount; i++)
-              windowcount--;
+	        /* slide window by the number of packets ACKed, also delete acked packets in buffer */
+            while (acked[windowfirst]) {
+                acked[windowfirst] = 0;
+                windowfirst = (windowfirst+1)%WINDOWSIZE;
+                windowcount--;
+            }
 
 	    /* start timer again if there are still more unacked packets in window */
             stoptimer(A);
