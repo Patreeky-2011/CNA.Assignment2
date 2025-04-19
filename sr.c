@@ -56,10 +56,10 @@ bool IsCorrupted(struct pkt packet)
 /* This function covers wrap around logic so old ACKs don't get misinterpreted*/
 bool isInWindow(int base, int seqnum) {
     if (base <= (base + WINDOWSIZE - 1) % SEQSPACE) {
-        // no wraparound
+        /* no wraparound*/ 
         return seqnum >= base && seqnum < base + WINDOWSIZE;
     } else {
-        // wraparound
+        /* wraparound */
         return seqnum >= base || seqnum < (base + WINDOWSIZE) % SEQSPACE;
     }
 }
@@ -71,7 +71,7 @@ static struct pkt buffer[WINDOWSIZE];  /* array for storing packets waiting for 
 
 static bool acked[WINDOWSIZE];         /* tracks if packets have been acked */
 static int sendTime[WINDOWSIZE];      /* keep an array of timers for each packet */
-extern float time;                    // Simulated time for packets
+extern float time;                    /*Simulated time for packets */
 
 static int windowfirst, windowlast;    /* array indexes of the first/last packet awaiting ACK */
 static int windowcount;                /* the number of packets currently awaiting an ACK */
@@ -107,8 +107,8 @@ void A_output(struct msg message)
     tolayer3 (A, sendpkt);
 
     /* Only one timer so store send times, and then only start timer if not already running. */
-    sendTime[windowlast] = time; //Set to current simulated event time
-    acked[windowlast] = 0; //ACK has not been received so 0
+    sendTime[windowlast] = time; /*Set to current simulated event time*/
+    acked[windowlast] = 0; /*ACK has not been received so 0*/
 
     /* get next sequence number, wrap back to 0 */
     A_nextseqnum = (A_nextseqnum + 1) % SEQSPACE;  
@@ -127,8 +127,6 @@ void A_output(struct msg message)
 */
 void A_input(struct pkt packet)
 {
-  bool firstACK = 0;
-  int i;
 
   /* if received ACK is not corrupted */ 
   if (!IsCorrupted(packet)) {
