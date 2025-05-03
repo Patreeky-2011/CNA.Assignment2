@@ -70,8 +70,11 @@ bool isInWindow(int base, int seqnum) {
 static struct pkt buffer[WINDOWSIZE];  /* array for storing packets waiting for ACK */
 
 static bool acked[WINDOWSIZE];         /* tracks if packets have been acked */
-static int sendTime[WINDOWSIZE];      /* keep an array of timers for each packet */
-extern float time;                    /*Simulated time for packets */
+static int current_tick = 0;           /*This will be the global clock */
+static int due_tick[WINDOWSIZE];       /*This tracks 'expiry' times*/
+/*timeout period (RTT * 1.5 = 24)*/
+static int timeout_ticks = 24;         /*ticks before timeout (24/1.0 = 24)*/
+static float tick_interval = 1;      /*this is how often to call timer_interrupt*/
 
 static int windowfirst, windowlast;    /* array indexes of the first/last packet awaiting ACK */
 static int windowcount;                /* the number of packets currently awaiting an ACK */
@@ -106,9 +109,13 @@ void A_output(struct msg message)
       printf("Sending packet %d to layer 3\n", sendpkt.seqnum);
     tolayer3 (A, sendpkt);
 
-    /* Only one timer so store send times, and then only start timer if not already running. */
-    sendTime[windowlast] = time; /*Set to current simulated event time*/
     acked[windowlast] = 0; /*ACK has not been received so 0*/
+    due_tick[windowlast] = current_tick + timeout_ticks;
+
+    /* Only one timer so store send times, and then only start timer if not already running. */
+    if (windowcount==1) {
+      starttimer(A, tick_interval);
+    }
 
     /* get next sequence number, wrap back to 0 */
     A_nextseqnum = (A_nextseqnum + 1) % SEQSPACE;  
