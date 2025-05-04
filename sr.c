@@ -113,9 +113,9 @@ static int B_window_full = 0;
       /*windowlast = (windowlast + 1) % WINDOWSIZE; 
       buffer[windowlast] = sendpkt;*/
 
+      /* store packet in buffer */
       buffer[sendpkt.seqnum] = sendpkt;
-      acked[sendpkt.seqnum] = 0; /*ACK has not been received so 0*/
-      due_tick[sendpkt.seqnum] = current_tick + timeout_ticks;
+      acked[sendpkt.seqnum] = 0;
 
       /* send out packet */
       if (TRACE > 0)
@@ -205,27 +205,27 @@ void A_timerinterrupt(void)
   if (TRACE > 0)
     printf("----A: time out,resend packets!\n");
 
-    for (i = 0; i < windowcount; i++) {
-      seqnum = (windowfirst + i) % SEQSPACE;
-  
-      if (!acked[seqnum]) {
-        if (TRACE > 0)
-          printf("---A: resending packet %d\n", buffer[seqnum].seqnum);
-  
-        tolayer3(A, buffer[seqnum]);
-        has_unacked = 1;
-      }
-    }
-  
-    if (has_unacked) {
-      stoptimer(A);  // Ensure clean restart
-      starttimer(A, timeout_ticks);
-      timer_running = 1;
-    } else {
-      stoptimer(A);
-      timer_running = 0;
+  for (i = 0; i < windowcount; i++) {
+    seqnum = (windowfirst + i) % SEQSPACE;
+
+    if (!acked[seqnum]) {
+      if (TRACE > 0)
+        printf("---A: resending packet %d\n", buffer[seqnum].seqnum);
+
+      tolayer3(A, buffer[seqnum]);
+      has_unacked = 1;
     }
   }
+
+  if (has_unacked) {
+    stoptimer(A);  
+    starttimer(A, timeout_ticks);
+    timer_running = 1;
+  } else {
+    stoptimer(A);
+    timer_running = 0;
+  }
+}
 
 /* the following routine will be called once (only) before any other */
 /* entity A routines are called. You can use it to do any initialization */
