@@ -73,8 +73,11 @@ static int current_tick = 0;         /*  This will be the global clock */
 static int due_tick[SEQSPACE];       /*This tracks 'expiry' times*/
 /*timeout period (RTT * 1.5 = 24)*/
 static int timeout_ticks = 24;         /*ticks before timeout (24/1.0 = 24)*/
-static float tick_interval = 1;      /*this is how often to call timer_interrupt*/
+/*static float tick_interval = 1;      this is how often to call timer_interrupt*/
 int timer_running = 0;
+
+static struct pkt B_buffer[SEQSPACE]; 
+static int B_received[SEQSPACE]; 
 
 static int windowfirst, windowlast;    /* array indexes of the first/last packet awaiting ACK */
 static int windowcount;                /* the number of packets currently awaiting an ACK */
@@ -82,8 +85,7 @@ static int A_nextseqnum;               /* the next sequence number to be used by
 
 
 /*VARIABLES FOR BIDIRECTIONAL TRAVEL*/
-static struct pkt B_buffer[WINDOWSIZE];
-static bool B_acked[WINDOWSIZE];
+static bool B_acked[SEQSPACE];
 static int B_windowfirst, B_windowlast, B_windowcount;
 static int B_nextseqnum = 0;
 static int B_packets_resent = 0;
@@ -124,11 +126,11 @@ void A_output(struct msg message)
     windowcount++;
 
     /* Only one timer so store send times, and then only start timer if not already running. */
-    // if (windowcount==1) {
-    //   starttimer(A, timeout_ticks);
-    // }
+    /*if (windowcount==1) {
+       starttimer(A, timeout_ticks);
+    */ 
     if (!timer_running) {
-      starttimer(A, 1);  // small interval so A_timerinterrupt runs regularly
+      starttimer(A, 1);  
       timer_running = 1;
     }
 
@@ -168,7 +170,7 @@ void A_input(struct pkt packet)
 
       /*When earliest unACK'ed packets have been acked, slide the window*/
       while (acked[windowfirst]) {
-        acked[windowfirst] = 0;  // clear flag
+        acked[windowfirst] = 0;  
         windowfirst = (windowfirst + 1) % SEQSPACE;
         windowcount--;
       }
@@ -178,7 +180,7 @@ void A_input(struct pkt packet)
         stoptimer(A);
         starttimer(A, timeout_ticks);
       } else {
-        stoptimer(A);  // no packets in window; stop timer
+        stoptimer(A);  
       }
     } else
       if (TRACE > 0)
@@ -193,8 +195,8 @@ void A_input(struct pkt packet)
 void A_timerinterrupt(void)
 {
   int i;
-  current_tick++;
   int has_unacked = 0;
+  current_tick++;
 
   if (TRACE > 0)
     printf("----A: time out,resend packets!\n");
@@ -211,19 +213,17 @@ void A_timerinterrupt(void)
       /*if (i==0) starttimer(A,timeout_ticks);*/
     }
     if (!acked[i]) {
-      has_unacked = 1;  // There are still unacknowledged packets
+      has_unacked = 1; 
     }
   }
-  // Keep the timer running if needed
+
   if (has_unacked) {
-    starttimer(A, 1);  // Short interval for next check
+    starttimer(A, 1);  
     timer_running = 1;
   } else {
     timer_running = 0;
   }
 }       
-
-
 
 /* the following routine will be called once (only) before any other */
 /* entity A routines are called. You can use it to do any initialization */
@@ -243,6 +243,9 @@ void A_init(void)
 
 /********* Receiver (B)  variables and procedures ************/
 
+/* These variables are for B section*/
+             
+int B_expectedseqnum = 0; 
 static int expectedseqnum; /* the sequence number expected next by the receiver */
 static int B_nextseqnum;   /* the sequence number for the next packets sent by B */
 
@@ -252,30 +255,73 @@ void B_input(struct pkt packet)
 {
   struct pkt sendpkt;
   int i;
+  int seq = packet.seqnum;
 
   /* if not corrupted and received packet is in order */
   if  ( (!IsCorrupted(packet))  && (packet.seqnum == expectedseqnum) ) {
+    int upper;
+    int in_window;
     if (TRACE > 0)
       printf("----B: packet %d is correctly received, send ACK!\n",packet.seqnum);
     packets_received++;
 
-    /* deliver to receiving application */
-    tolayer5(B, packet.payload);
+    upper = (expectedseqnum + WINDOWSIZE) % SEQSPACE;
+    in_window = (expectedseqnum <= upper)
+                    ? (seq >= expectedseqnum && seq < upper)
+                    : (seq >= expectedseqnum || seq < upper);
 
-    /* send an ACK for the received packet */
-    sendpkt.acknum = expectedseqnum;
+    
+    if (in_window) {
+      if (!B_received[seq]) {
+        B_received[seq] = 1;
+        B_buffer[seq] = packet;
 
-    /* update state variables */
-    expectedseqnum = (expectedseqnum + 1) % SEQSPACE;        
+        if (TRACE > 0)
+          printf("----B: packet %d received and buffered\n", seq);
+      } else {
+        if (TRACE > 0)
+          printf("----B: duplicate packet %d received, already buffered\n", seq);
+      }
+
+      sendpkt.seqnum = 0;
+      sendpkt.acknum = seq;
+      for (i = 0; i < 20; i++)
+        sendpkt.payload[i] = '0';
+      sendpkt.checksum = ComputeChecksum(sendpkt);
+      tolayer3(B, sendpkt);
+
+
+      while (B_received[B_expectedseqnum]) {
+        tolayer5(B, B_buffer[B_expectedseqnum].payload);
+        packets_received++;
+
+        B_received[B_expectedseqnum] = 0;   
+        B_expectedseqnum = (B_expectedseqnum + 1) % SEQSPACE;
+      }
+    } else {
+
+      sendpkt.seqnum = 0;
+      sendpkt.acknum = seq;
+      for (i = 0; i < 20; i++)
+        sendpkt.payload[i] = '0';
+      sendpkt.checksum = ComputeChecksum(sendpkt);
+      tolayer3(B, sendpkt);
+    }
   }
   else {
     /* packet is corrupted or out of order resend last ACK */
+    int last_ack;
     if (TRACE > 0) 
       printf("----B: packet corrupted or not expected sequence number, resend ACK!\n");
-    if (expectedseqnum == 0)
-      sendpkt.acknum = SEQSPACE - 1;
-    else
-      sendpkt.acknum = expectedseqnum - 1;
+
+    last_ack = (B_expectedseqnum == 0) ? SEQSPACE - 1 : B_expectedseqnum - 1;
+
+    sendpkt.seqnum = 0;
+    sendpkt.acknum = last_ack;
+    for (i = 0; i < 20; i++)
+        sendpkt.payload[i] = '0';
+    sendpkt.checksum = ComputeChecksum(sendpkt);
+    tolayer3(B, sendpkt);
   }
 
   /* create packet */
@@ -297,8 +343,12 @@ void B_input(struct pkt packet)
 /* entity B routines are called. You can use it to do any initialization */
 void B_init(void)
 {
+  int i;
   expectedseqnum = 0;
   B_nextseqnum = 1;
+  for (i = 0; i < SEQSPACE; i++) {
+    B_received[i] = 0;
+  }
 }
 
 /******************************************************************************
