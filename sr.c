@@ -80,6 +80,15 @@ static int windowfirst, windowlast;    /* array indexes of the first/last packet
 static int windowcount;                /* the number of packets currently awaiting an ACK */
 static int A_nextseqnum;               /* the next sequence number to be used by the sender */
 
+
+/*VARIABLES FOR BIDIRECTIONAL TRAVEL*/
+static struct pkt B_buffer[WINDOWSIZE];
+static bool B_acked[WINDOWSIZE];
+static int B_windowfirst, B_windowlast, B_windowcount;
+static int B_nextseqnum = 0;
+static int B_packets_resent = 0;
+static int B_window_full = 0;
+
 /* called from layer 5 (application layer), passed the message to be sent to other side */
 void A_output(struct msg message)
 {
@@ -110,7 +119,7 @@ void A_output(struct msg message)
     tolayer3 (A, sendpkt);
 
     acked[windowlast] = 0; /*ACK has not been received so 0*/
-    due_tick[windowlast] = current_tick + timeout_ticks;
+    /* due_tick[windowlast] = current_tick + timeout_ticks; */
 
     /* Only one timer so store send times, and then only start timer if not already running. */
     if (windowcount==1) {
@@ -287,10 +296,57 @@ void B_init(void)
 /* Note that with simplex transfer from a-to-B, there is no B_output() */
 void B_output(struct msg message)  
 {
+  struct pkt sendpkt;
+  int i;
+
+  /* if window is not full */
+  if (B_windowcount < WINDOWSIZE) {
+    if (TRACE > 1)
+      printf("----B: New message arrives, send window is not full, send new message to layer3!\n");
+
+    sendpkt.seqnum = B_nextseqnum;
+    sendpkt.acknum = NOTINUSE;
+    for (i = 0; i < 20; i++)
+      sendpkt.payload[i] = message.data[i];
+    sendpkt.checksum = ComputeChecksum(sendpkt);
+
+    B_windowlast = (B_windowlast + 1) % WINDOWSIZE;
+    B_buffer[B_windowlast] = sendpkt;
+    B_windowcount++;
+
+    if (TRACE > 0)
+      printf("Sending packet %d from B to layer 3\n", sendpkt.seqnum);
+    tolayer3(B, sendpkt);
+
+    B_acked[B_windowlast] = 0;
+
+    if (B_windowcount == 1) {
+      starttimer(B, timeout_ticks);
+    }
+
+    B_nextseqnum = (B_nextseqnum + 1) % SEQSPACE;
+  } else {
+    if (TRACE > 0)
+      printf("----B: New message arrives, send window is full\n");
+    B_window_full++;
+  }
 }
 
 /* called when B's timer goes off */
 void B_timerinterrupt(void)
 {
+  int i;
+
+  if (TRACE > 0)
+    printf("----B: Timeout, resending packets!\n");
+
+  for (i = 0; i < B_windowcount; i++) {
+    if (TRACE > 0)
+      printf("---B: resending packet %d\n", B_buffer[(B_windowfirst + i) % WINDOWSIZE].seqnum);
+
+    tolayer3(B, B_buffer[(B_windowfirst + i) % WINDOWSIZE]);
+    B_packets_resent++;
+    if (i == 0) starttimer(B, timeout_ticks);
+  }
 }
 
