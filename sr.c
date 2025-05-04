@@ -74,7 +74,7 @@ static int current_tick = 0;           /*This will be the global clock */
 static int due_tick[WINDOWSIZE];       /*This tracks 'expiry' times*/
 /*timeout period (RTT * 1.5 = 24)*/
 static int timeout_ticks = 24;         /*ticks before timeout (24/1.0 = 24)*/
-static float tick_interval = 1;      /*this is how often to call timer_interrupt*/
+/*static float tick_interval = 1;      this is how often to call timer_interrupt*/
 
 static int windowfirst, windowlast;    /* array indexes of the first/last packet awaiting ACK */
 static int windowcount;                /* the number of packets currently awaiting an ACK */
@@ -114,7 +114,7 @@ void A_output(struct msg message)
 
     /* Only one timer so store send times, and then only start timer if not already running. */
     if (windowcount==1) {
-      starttimer(A, tick_interval);
+      starttimer(A, timeout_ticks);
     }
 
     /* get next sequence number, wrap back to 0 */
@@ -198,7 +198,7 @@ void A_timerinterrupt(void)
 
     tolayer3(A,buffer[(windowfirst+i) % WINDOWSIZE]);
     packets_resent++;
-    if (i==0) starttimer(A,RTT);
+    if (i==0) starttimer(A,timeout_ticks);
   }
 }       
 
